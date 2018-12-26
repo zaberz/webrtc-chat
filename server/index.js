@@ -8,27 +8,26 @@ const http = require('http').Server(app);
 const https = require('https');
 const socket = require('socket.io');
 
-var privateKey = fs.readFileSync(path.join(__dirname, './x.meipai.com.key'), 'utf8');
-var certificate = fs.readFileSync(path.join(__dirname, './x.meipai.com.cer'), 'utf8');
+var privateKey = fs.readFileSync(path.join(__dirname, './2_zzz.lizimeow.cn.key'), 'utf8');
+var certificate = fs.readFileSync(path.join(__dirname, './1_zzz.lizimeow.cn_bundle.crt'), 'utf8');
 var credentials = {key: privateKey, cert: certificate};
+
 var httpsServer = https.createServer(credentials, app);
+// todo
 const io = socket(httpsServer);
 // const io = socket(http);
 
 app.use(express.static(path.join(__dirname, '../dist')));
-// app.use(express.static(__dirname + '/pub'));
-// app.get('/a.jpg', (req, res) => {
-//     res.sendFile(path.resolve(__dirname, '../dist/a.jpg'));
-// });
 //allow custom header and CORS
 app.all('*', function (req, res, next) {
-    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Content-Length, Authorization, Accept, X-Requested-With , yourHeaderFeild');
     res.header('Access-Control-Allow-Methods', 'PUT, POST, GET, DELETE, OPTIONS');
 
+    res.header('Access-Control-Allow-Credentials', 'true');
+
     if (req.method == 'OPTIONS') {
         res.send(200);
-        /让options请求快速返回/;
     }
     else {
         next();
@@ -37,19 +36,21 @@ app.all('*', function (req, res, next) {
 app.get('/', (req, res) => {
     res.sendFile(path.resolve(__dirname, '../dist/index.html'));
 });
+// let port = 80;
 let port = 10000;
 http.listen(port, () => {
     console.log('listening on *:' + port);
 });
 
-httpsServer.listen(10001, function () {
-    console.log('HTTPS Server is running on: https://localhost:%s', 10001);
+// todo
+let httpsPort = 443;
+httpsServer.listen(httpsPort, function () {
+    console.log('HTTPS Server is running on: https://localhost:%s', httpsPort);
 });
 
 io.sockets.on('connection', function (socket) {
 
     socket.on('createOrJoin', (room) => {
-        console.log(room);
         let clientsInRoom = io.sockets.adapter.rooms[room];
         let numClients = clientsInRoom ? Object.keys(clientsInRoom.sockets).length : 0;
         console.log(numClients);
@@ -61,22 +62,40 @@ io.sockets.on('connection', function (socket) {
             // io.sockets.in(room).emit('join', room);
             socket.join(room);
             // socket.emit('joined', room, socket.id);
-            socket.broadcast.emit('guestJoin', room);
-            io.sockets.in(room).emit('ready', room);
+            socket.to(room).emit('guestJoin', room);
+            socket.to(room).emit('ready', room);
+            // socket.broadcast.emit('guestJoin', room);
+            // io.sockets.in(room).emit('ready', room);
         } else { // max two clients
             socket.emit('full', room);
         }
     });
 
     socket.on('getOffer', offer => {
-        socket.broadcast.emit('getOffer', offer);
+        let rooms = Object.keys(socket.rooms).filter(room => (room !== socket.id));
+        rooms.map(room => {
+            socket.to(room).broadcast.emit('getOffer', offer);
+        });
+        // socket.broadcast.emit('getOffer', offer);
     });
     socket.on('getAnswer', answer => {
-        socket.broadcast.emit('getAnswer', answer);
+        let rooms = Object.keys(socket.rooms).filter(room => (room !== socket.id));
+        rooms.map(room => {
+            socket.to(room).broadcast.emit('getAnswer', answer);
+        });
+        // socket.broadcast.emit('getAnswer', answer);
     });
 
     socket.on('message', message => {
-        socket.broadcast.emit('message', message);
+        let rooms = Object.keys(socket.rooms).filter(room => (room !== socket.id));
+        rooms.map(room => {
+            socket.to(room).broadcast.emit('message', message);
+        });
+        // socket.broadcast.emit('message', message);
+    });
+
+    socket.on('getAvailableRooms', () => {
+        socket.emit('getAvailableRooms', getAvailableRooms(io.sockets.adapter));
     });
     // convenience function to log server messages on the client
     // function log() {
@@ -134,3 +153,11 @@ io.sockets.on('connection', function (socket) {
     //     console.log(`Peer said bye on room ${room}.`);
     // });
 });
+
+function getAvailableRooms(adapter) {
+    let {rooms, sids} = adapter;
+    let availableRooms = Object.keys(rooms).filter(key => {
+        return Object.keys(sids).indexOf(key) === -1;
+    });
+    return availableRooms;
+}
